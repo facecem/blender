@@ -11,4 +11,5 @@ In der Cloud wird mit Cycles auf der CPU gerendert (Eevee braucht eine GPU).
 ```bash
 python3 scripts/wuerfel_rotation.py   # rotierender Würfel
 python3 scripts/figur_sprung.py       # Figur springt und landet
+python3 scripts/ps2_charakter.py      # Alt-Charakter im PS2-Look auf dem Drehteller
 ```
