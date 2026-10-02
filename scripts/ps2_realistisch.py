@@ -2,8 +2,9 @@
 
 Basis ist das freie MakeHuman-Modell (CC0) aus dem MPFB2-Repository: Körper,
 Skelett und Gewichtung werden beim ersten Lauf nach assets/makehuman geladen.
-Daraus entsteht ein eigener Alt-Charakter: gefärbte Haare, Piercings, Kette,
-Strickpullover. Haut, Augenbrauen und Bart sind wie damals als Vertex-Farben
+Daraus entsteht ein eigener Alt-Charakter: sehr helle Haut, lockere dunkle
+Haare, Flanellhemd über Band-Shirt, Septum, Ohrringe und Kette. Haut, Augenbrauen
+und Lippen sind wie damals als Vertex-Farben
 gemalt; das Bild wird klein gerendert und weich hochskaliert.
 
 Aufruf:  python3 scripts/ps2_realistisch.py
@@ -181,14 +182,23 @@ eyes = build_mesh("Augen", ["helper-l-eye", "helper-r-eye"])
 EYE_Z = group_center("joint-l-eye").z
 
 
-def scalp_top(face):
-    """Deckhaar für den Undercut: Oberkopf oberhalb der Stirn, Seiten bleiben frei."""
+EYE_Y = group_center("joint-l-eye").y
+
+
+def scalp(face):
+    """Behaarte Kopfhaut: über der Stirn, an den Seiten über den Ohren, hinten bis zum Nacken."""
     p = VERTS[face]
-    return (all(str(DOMINANT[i]).startswith("head") for i in face)
-            and p[:, 2].min() > EYE_Z + 0.05 and np.abs(p[:, 0]).max() < 0.07)
+    if not all(str(DOMINANT[i]).startswith("head") for i in face):
+        return False
+    y, z = p[:, 1].mean(), p[:, 2].min()
+    if y < EYE_Y + 0.04:
+        return z > EYE_Z + 0.05
+    if y < EYE_Y + 0.11:
+        return z > EYE_Z + 0.012
+    return z > EYE_Z - 0.05
 
 
-hair = build_mesh("Haare", ["body"], scalp_top)
+hair = build_mesh("Haare", ["body"], scalp)
 NECK_Z = group_center("joint-neck").z - 0.035
 
 
@@ -197,7 +207,7 @@ def sweater_part(face):
     return region(TOP)(face) and VERTS[face][:, 2].max() < NECK_Z
 
 
-sweater = build_mesh("Pullover", ["helper-tights"], sweater_part)
+sweater = build_mesh("Hemd", ["helper-tights"], sweater_part)
 pants = build_mesh("Hose", ["helper-tights"], region(LEGS))
 shoes = build_mesh("Schuhe", ["helper-tights"], region(FEET))
 for obj in (body, eyes, hair, sweater, pants, shoes):
@@ -221,12 +231,12 @@ def push_out(obj, amount, levels=1):
 push_out(sweater, 0.012)
 push_out(pants, 0.006)
 push_out(shoes, 0.018)
-push_out(hair, 0.014)
+push_out(hair, 0.016)
 # Strähnige, unruhige Oberfläche für das Deckhaar
 tufts = bpy.data.textures.new("Straehnen", "CLOUDS")
-tufts.noise_scale = 0.02
+tufts.noise_scale = 0.03
 messy = hair.modifiers.new("Straehnen", "DISPLACE")
-messy.texture, messy.strength, messy.texture_coords = tufts, 0.015, "LOCAL"
+messy.texture, messy.strength, messy.texture_coords = tufts, 0.012, "LOCAL"
 messy.mid_level = 0.3
 bpy.context.view_layer.objects.active = hair
 bpy.ops.object.modifier_move_to_index(modifier="Straehnen", index=2)
@@ -247,7 +257,7 @@ def soft(x, edge, width):
     return np.clip((x - edge) / width + 0.5, 0, 1)
 
 
-skin = np.tile([0.52, 0.32, 0.22], (len(co), 1))
+skin = np.tile([0.93, 0.87, 0.84], (len(co), 1))  # sehr helle, fast weiße Haut
 front = co[:, 1] < EYE_L.y + 0.02
 face_x = np.abs(co[:, 0])
 # Augenbrauen: Bogen über jedem Auge
@@ -255,23 +265,15 @@ brow_z = EYE_L.z + 0.021 + 0.004 * np.cos((face_x - abs(EYE_L.x)) * 40)
 brow = (front & (face_x > 0.008) & (face_x < abs(EYE_L.x) + 0.03)
         & (np.abs(co[:, 2] - brow_z) < 0.0055 - 0.06 * np.maximum(face_x - abs(EYE_L.x), 0)))
 # Lippen
-lips = front & (np.abs(co[:, 2] - (MOUTH.z - 0.025)) < 0.008) & (face_x < 0.024) & (co[:, 1] < MOUTH.y - 0.085)
-# Kinnbart (Goatee) und Schnurrbart als dunkle Stoppeln
-chin = front & (co[:, 2] < MOUTH.z - 0.035) & (co[:, 2] > MOUTH.z - 0.085) & (face_x < 0.022 + 0.3 * (MOUTH.z - 0.035 - co[:, 2]))
-stache = front & (np.abs(co[:, 2] - (MOUTH.z - 0.008)) < 0.006) & (face_x < 0.026) & (co[:, 1] < MOUTH.y - 0.085)
-# Augenringe / dunkler Lidschatten
+lips = front & (np.abs(co[:, 2] - (MOUTH.z - 0.034)) < 0.006) & (face_x < 0.024) & (co[:, 1] < MOUTH.y - 0.085)
+# leichte Augenringe
 socket = front & ((np.hypot(co[:, 0] - EYE_L.x, co[:, 2] - EYE_L.z) < 0.02)
                   | (np.hypot(co[:, 0] - EYE_R.x, co[:, 2] - EYE_R.z) < 0.02))
 color = skin.copy()
-color[socket] *= 0.75
-color[lips] = [0.36, 0.17, 0.15]
-color[chin | stache] = color[chin | stache] * 0.5 + 0.02
-color[brow] = [0.05, 0.035, 0.03]
-head_skin = np.array([str(DOMINANT[i]).startswith("head") for i in ORIG_INDEX["Koerper"]])
-behind_face = co[:, 1] > EYE_L.y + 0.035
-shaved = head_skin & (co[:, 2] > EYE_L.z + 0.045 - 0.06 * behind_face)
-color[shaved] = color[shaved] * 0.3 + 0.015
-color *= 0.92 + 0.08 * np.random.default_rng(1).random((len(co), 1))  # leicht fleckige Haut
+color[socket] *= [0.86, 0.84, 0.88]
+color[lips] = [0.84, 0.64, 0.64]
+color[brow] = [0.12, 0.09, 0.08]
+color *= 0.96 + 0.04 * np.random.default_rng(1).random((len(co), 1))  # leicht fleckige Haut
 
 
 def paint(obj, colors):
@@ -281,11 +283,10 @@ def paint(obj, colors):
 
 paint(body, color ** 2.2)  # sRGB -> linear
 
-# Haare: dunkle Ansätze, nach oben in gebleichtes Pink auslaufend
+# Haare: natürliches Schwarzbraun mit leichten Farbschwankungen
+HAIR_RGB = np.array([0.07, 0.05, 0.045])
 hco = VERTS[ORIG_INDEX["Haare"]]
-t = np.clip((hco[:, 2] - (EYE_L.z + 0.05)) / (HEAD_TOP.z - EYE_L.z - 0.07), 0, 1) ** 0.7
-hair_col = np.outer(1 - t, [0.03, 0.02, 0.03]) + np.outer(t, [0.35, 0.1, 0.25])
-paint(hair, hair_col ** 2.2)
+paint(hair, (HAIR_RGB * (0.8 + 0.4 * np.random.default_rng(2).random((len(hco), 1)))) ** 2.2)
 
 
 # --- Materialien ---------------------------------------------------------------
@@ -306,14 +307,17 @@ def mat(name, rgb=None, roughness=0.6, use_vcol=False, metallic=0.0):
     return m
 
 
-def knit_texture(name, size=32):
-    """Low-Res-Strickmuster wie eine 32x32-Textur aus PS2-Zeiten."""
+def flannel_texture(name, size=32):
+    """Rot-schwarzes Flanell-Karo als 32x32-Textur wie aus PS2-Zeiten."""
     rng = np.random.default_rng(7)
     y, x = np.mgrid[0:size, 0:size]
-    base = 0.16 + 0.12 * ((x // 4 + y // 4) % 2) + 0.05 * rng.random((size, size))
-    rgb = np.stack([base, base, base * 1.08], axis=-1)
-    stripe = (y // 2) % 8 == 0
-    rgb[stripe] = [0.45, 0.08, 0.25]
+    band_x, band_y = (x // 8) % 2 == 0, (y // 8) % 2 == 0
+    red, black = np.array([0.5, 0.05, 0.05]), np.array([0.04, 0.03, 0.03])
+    weave = (band_x.astype(float) + band_y.astype(float)) / 2  # 0, 0.5 oder 1
+    rgb = black + weave[..., None] * (red - black)
+    thin = (x % 8 == 4) | (y % 8 == 4)  # feine helle Linien im Karo
+    rgb[thin] = rgb[thin] * 0.5 + 0.18
+    rgb *= 0.9 + 0.2 * rng.random((size, size, 1))
     img = bpy.data.images.new(name, size, size)
     img.pixels.foreach_set(np.concatenate([rgb ** 2.2, np.ones((size, size, 1))], axis=-1).ravel().astype(np.float32))
     img.pack()
@@ -326,11 +330,11 @@ JEANS = mat("Jeans", (0.03, 0.04, 0.06), 0.85)
 SHOE = mat("Schuhe", (0.02, 0.02, 0.02), 0.4)
 SILVER = mat("Silber", (0.85, 0.85, 0.9), 0.2, metallic=1.0)
 EYE = mat("Auge", roughness=0.15, use_vcol=True)
-SWEATER = mat("Pullover", (0.1, 0.1, 0.1), roughness=0.9)
+SWEATER = mat("Flanellhemd", (0.1, 0.1, 0.1), roughness=0.9)
 tex = SWEATER.node_tree.nodes.new("ShaderNodeTexImage")
-tex.image = knit_texture("Strick")
+tex.image = flannel_texture("Flanell")
 mapping = SWEATER.node_tree.nodes.new("ShaderNodeMapping")
-mapping.inputs["Scale"].default_value = (5, 5, 5)
+mapping.inputs["Scale"].default_value = (3, 3, 3)
 tex.projection, tex.projection_blend = "BOX", 0.3
 tex.interpolation = "Closest"
 obj_coord = SWEATER.node_tree.nodes.new("ShaderNodeTexCoord")
@@ -352,9 +356,10 @@ for c in (EYE_L, EYE_R):
 paint(eyes, ecol ** 2.2)
 
 
-# --- Schmuck: Kette, Septum, Lippenring, Ohrringe ---------------------------------
+# --- Schmuck: Kette, Septum, Ohrringe ---------------------------------
 
 def bone_child(obj, bone_name):
+    bpy.context.view_layer.update()  # Skalierung erst übernehmen, dann Weltmatrix sichern
     world = obj.matrix_world.copy()
     obj.parent, obj.parent_type, obj.parent_bone = rig, "BONE", bone_name
     bpy.context.view_layer.update()
@@ -380,41 +385,43 @@ def front_point(z, x=0.0, tol=0.004):
 cand = co[(co[:, 2] > EYE_L.z - 0.06) & (co[:, 2] < EYE_L.z - 0.01) & (np.abs(co[:, 0]) < 0.006)]
 nose_tip = Vector(cand[np.argmin(cand[:, 1])])
 ring(nose_tip + Vector((0, 0.012, -0.011)), 0.0045, 0.001, (math.radians(80), 0, 0), "head")  # Septum
-lip = front_point(MOUTH.z - 0.032, x=0.012)
-ring(lip + Vector((0, 0.002, -0.004)), 0.005, 0.0011, (0, math.radians(90), 0), "jaw")       # Lippenring
 for side in (1, -1):
     ear = co[(np.sign(co[:, 0]) == side) & (np.abs(co[:, 2] - (EYE_L.z - 0.035)) < 0.006)]
     lobe = Vector(ear[np.argmax(np.abs(ear[:, 0]))])
     ring(lobe + Vector((0, 0, -0.006)), 0.007, 0.0014, (0, math.radians(90), 0), "head")
 neck = group_center("joint-neck")
 
-# Weißer Shirtkragen unter dem Pullover verdeckt die Halskante
+# Kragen des schwarzen Band-Shirts unter dem Flanellhemd verdeckt die Halskante
 bpy.ops.mesh.primitive_torus_add(location=(0, neck.y + 0.008, NECK_Z - 0.002), major_radius=0.07,
                                  minor_radius=0.016, major_segments=16, minor_segments=6)
 collar = bpy.context.object
 collar.scale = (1.15, 1.0, 0.8)
-collar.data.materials.append(mat("Shirt", (0.85, 0.85, 0.82), 0.9))
+collar.data.materials.append(mat("Shirt", (0.02, 0.02, 0.02), 0.9))
 bpy.ops.object.shade_smooth()
 bone_child(collar, "spine05")
 
-# Spiky Frisur: Strähnen-Kegel auf dem Oberkopf, schwarzer Ansatz, pinke Spitzen
-SPIKE = mat("Spikes", roughness=0.5, use_vcol=True)
+# Lockere, etwas strubbelige Frisur: flache Strähnen, die am Kopf nach unten fallen,
+# vorne als Pony in die Stirn. Strähnen-Kegel wie bei PS2-Haarmodellen.
+STRAND = mat("Straehne", roughness=0.5, use_vcol=True)
 rng = np.random.default_rng(3)
 hair_mesh = hair.data
-for idx in rng.choice(len(hair_mesh.vertices), size=min(70, len(hair_mesh.vertices)), replace=False):
+for idx in rng.choice(len(hair_mesh.vertices), size=min(110, len(hair_mesh.vertices)), replace=False):
     v = hair_mesh.vertices[idx]
-    normal = (v.normal + Vector((0, 0.9, 0.5))).normalized()  # nach hinten gekämmt
-    length = rng.uniform(0.04, 0.075)
-    base = v.co + v.normal * 0.012
-    bpy.ops.mesh.primitive_cone_add(vertices=5, radius1=rng.uniform(0.012, 0.018), radius2=0,
-                                    depth=length, location=base + normal * length / 2,
-                                    rotation=normal.to_track_quat("Z", "Y").to_euler())
-    spike = bpy.context.object
-    spike.data.materials.append(SPIKE)
-    tip = np.array([vv.co.z for vv in spike.data.vertices]) > 0
-    paint(spike, np.where(tip[:, None], [0.95, 0.4, 0.7], [0.03, 0.02, 0.03]) ** 2.2)
+    n = v.normal.normalized()
+    fall = Vector((0, -0.6 if v.co.y < EYE_Y + 0.04 else 0.3, -1))  # vorne in die Stirn, sonst nach unten/hinten
+    direction = (fall - n * fall.dot(n)).normalized() + n * 0.25
+    direction.normalize()
+    length = rng.uniform(0.035, 0.06)
+    base = v.co + n * 0.016
+    bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=rng.uniform(0.012, 0.018), radius2=0.002,
+                                    depth=length, location=base + direction * length / 2,
+                                    rotation=direction.to_track_quat("Z", "Y").to_euler())
+    strand = bpy.context.object
+    strand.scale.y = 0.45  # flach wie eine Haarsträhne
+    strand.data.materials.append(STRAND)
+    paint(strand, np.tile(HAIR_RGB * rng.uniform(0.8, 1.3), (len(strand.data.vertices), 1)) ** 2.2)
     bpy.ops.object.shade_smooth()
-    bone_child(spike, "head")
+    bone_child(strand, "head")
 for i in range(26):  # Kette um den Hals
     a = math.tau * i / 26
     p = Vector((0.062 * math.sin(a), neck.y - 0.005 + 0.055 * -math.cos(a),
@@ -539,8 +546,8 @@ def light(loc, rgb, energy, size):
     scene.collection.objects.link(obj)
 
 
-light((-1.2, -2.0, 2.4), (1.0, 0.93, 0.85), 180, 1.5)
-light((1.5, -1.0, 1.8), (0.85, 0.9, 1.0), 50, 2.0)
+light((-1.4, -1.8, 2.4), (1.0, 0.93, 0.85), 95, 1.2)
+light((1.5, -1.0, 1.8), (0.85, 0.9, 1.0), 25, 2.0)
 
 cam_data = bpy.data.cameras.new("Kamera")
 cam_data.lens = 45
